@@ -379,9 +379,11 @@ class MTSAC(OffPolicyAlgorithm[MTSACConfig]):
             _alpha_val: Float[Array, "batch 1"],
             _task_weights: Float[Array, "batch 1"] | None = None,
         ):
-            action_samples, log_probs = self.actor.apply_fn(
-                params, _data.observations
-            ).sample_and_log_prob(seed=actor_loss_key)
+            # Request intermediates to avoid extra forward pass
+            dist, actor_state = self.actor.apply_fn(
+                params, _data.observations, mutable="intermediates"
+            )
+            action_samples, log_probs = dist.sample_and_log_prob(seed=actor_loss_key)
             log_probs = log_probs.reshape(-1, 1)
 
             q_values = self.critic.apply_fn(
@@ -392,10 +394,11 @@ class MTSAC(OffPolicyAlgorithm[MTSACConfig]):
                 loss = (task_weights * (_alpha_val * log_probs - min_qf_values)).mean()
             else:
                 loss = (_alpha_val * log_probs - min_qf_values).mean()
-            return loss, log_probs
+            # Return intermediates as part of aux output
+            return loss, (log_probs, actor_state.get("intermediates", {}))
 
         if self.split_actor_losses:
-            (actor_loss_value, log_probs), actor_grads = jax.vmap(
+            (actor_loss_value, (log_probs, intermediates)), actor_grads = jax.vmap(
                 jax.value_and_grad(actor_loss, has_aux=True),
                 in_axes=(None, 0, 0, 0),
                 out_axes=0,
@@ -403,8 +406,36 @@ class MTSAC(OffPolicyAlgorithm[MTSACConfig]):
             flat_grads, _ = flatten_util.ravel_pytree(
                 jax.tree.map(lambda x: x.mean(axis=0), actor_grads)
             )
+            # For split losses, intermediates is a list/tuple from vmap
+            # We need to merge them - for expert_assignments, sum across tasks
+            if isinstance(intermediates, (list, tuple)):
+                # Recursively merge intermediates from all tasks
+                def merge_intermediates(interm_list):
+                    """Merge intermediates from multiple tasks."""
+                    if not interm_list:
+                        return {}
+                    if isinstance(interm_list[0], dict):
+                        merged = {}
+                        for task_interm in interm_list:
+                            if isinstance(task_interm, dict):
+                                for k, v in task_interm.items():
+                                    if k not in merged:
+                                        merged[k] = []
+                                    merged[k].append(v)
+                        # Sum expert_assignments, keep others as lists
+                        for k in list(merged.keys()):
+                            if "expert_assignments" in k.lower():
+                                try:
+                                    merged[k] = jnp.sum(jnp.stack(merged[k]), axis=0)
+                                except:
+                                    merged[k] = merged[k][0]  # Fallback to first
+                            else:
+                                merged[k] = merged[k][0]  # Take first for non-expert metrics
+                        return merged
+                    return interm_list[0] if interm_list else {}
+                intermediates = merge_intermediates(intermediates)
         else:
-            (actor_loss_value, log_probs), actor_grads = jax.value_and_grad(
+            (actor_loss_value, (log_probs, intermediates)), actor_grads = jax.value_and_grad(
                 actor_loss, has_aux=True
             )(self.actor.params, data, alpha_val, task_weights)
             flat_grads, _ = flatten_util.ravel_pytree(actor_grads)
@@ -424,6 +455,64 @@ class MTSAC(OffPolicyAlgorithm[MTSACConfig]):
             "metrics/actor_grad_magnitude": jnp.linalg.norm(flat_grads),
             "metrics/actor_params_norm": jnp.linalg.norm(flat_params_act),
         }
+
+        # Extract expert assignments from intermediates (already computed during forward pass)
+        if intermediates:
+            # Recursively search for expert_assignments in nested structure
+            def find_expert_assignments(d: dict) -> Array | None:
+                """Recursively search for expert_assignments in nested dict."""
+                if "expert_assignments" in d:
+                    val = d["expert_assignments"]
+                    # Handle tuple format (value, metadata) that sow sometimes returns
+                    if isinstance(val, tuple):
+                        val = val[0]
+                    if isinstance(val, (jax.Array, jnp.ndarray)):
+                        return val
+                for v in d.values():
+                    if isinstance(v, dict):
+                        result = find_expert_assignments(v)
+                        if result is not None:
+                            return result
+                return None
+            
+            expert_assignments = find_expert_assignments(intermediates)
+            
+            if expert_assignments is not None:
+                # Flatten if needed (handle batch dimensions)
+                if expert_assignments.ndim > 1:
+                    # Sum over batch dimensions, keep expert dimension
+                    expert_assignments = expert_assignments.sum(axis=tuple(range(expert_assignments.ndim - 1)))
+                
+                # Log expert assignment statistics
+                # Use JAX-safe operations to avoid tracing issues
+                num_experts = expert_assignments.shape[0]
+                total_assignments = expert_assignments.sum()
+                # Use jnp.where to handle zero division safely
+                safe_total = jnp.where(total_assignments > 0, total_assignments, 1.0)
+                expert_usage = expert_assignments / safe_total
+                
+                # Only log if total_assignments > 0 (check after computation to avoid tracing issues)
+                # We'll compute metrics and use jnp.where to set them to 0 if no assignments
+                usage_mean = jnp.where(total_assignments > 0, expert_usage.mean(), 0.0)
+                usage_std = jnp.where(total_assignments > 0, expert_usage.std(), 0.0)
+                usage_min = jnp.where(total_assignments > 0, expert_usage.min(), 0.0)
+                usage_max = jnp.where(total_assignments > 0, expert_usage.max(), 0.0)
+                usage_max_violation = jnp.where(
+                    total_assignments > 0,
+                    (expert_usage.max() - expert_usage.mean()) / jnp.maximum(expert_usage.mean(), 1e-8),
+                    0.0
+                )
+                
+                # Store metrics as JAX arrays - will be converted to float outside JIT
+                # We can't convert to float inside JIT, so store as arrays
+                logs["metrics/expert_usage_mean"] = usage_mean
+                logs["metrics/expert_usage_std"] = usage_std
+                logs["metrics/expert_usage_min"] = usage_min
+                logs["metrics/expert_usage_max"] = usage_max
+                logs["metrics/expert_usage_max_violation"] = usage_max_violation
+                # Store expert assignments as array
+                logs["metrics/expert_assignments_array"] = expert_assignments
+                logs["metrics/num_experts"] = num_experts
 
         return (self.replace(actor=actor, key=key), log_probs, logs)
 
@@ -524,4 +613,21 @@ class MTSAC(OffPolicyAlgorithm[MTSACConfig]):
 
     @override
     def update(self, data: ReplayBufferSamples) -> tuple[Self, LogDict]:
-        return self._update_inner(data)
+        self, logs = self._update_inner(data)
+        
+        # Convert expert assignment metrics from JAX arrays to floats (outside JIT)
+        if "metrics/expert_assignments_array" in logs:
+            expert_assignments = jax.device_get(logs.pop("metrics/expert_assignments_array"))
+            num_experts = int(logs.pop("metrics/num_experts"))
+            
+            # Convert scalar metrics to float
+            for key in ["expert_usage_mean", "expert_usage_std", "expert_usage_min", 
+                       "expert_usage_max", "expert_usage_max_violation"]:
+                if f"metrics/{key}" in logs:
+                    logs[f"metrics/{key}"] = float(jax.device_get(logs[f"metrics/{key}"]))
+            
+            # Convert individual expert assignments to float
+            for i in range(num_experts):
+                logs[f"metrics/expert_{i}_assignments"] = float(expert_assignments[i])
+        
+        return self, logs

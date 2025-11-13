@@ -9,6 +9,7 @@ from .moore import MOORENetwork
 from .multi_head import MultiHeadNetwork
 from .paco import PaCoNetwork
 from .soft_modules import SoftModularizationNetwork
+from .sparse_moe import SparseMoENetwork
 
 
 def get_nn_arch_for_config(
@@ -28,6 +29,8 @@ def get_nn_arch_for_config(
         return MOORENetwork
     elif type(config) is metaworld_algorithms.config.nn.VanillaNetworkConfig:
         return VanillaNetwork
+    elif type(config) is metaworld_algorithms.config.nn.SparseMoEConfig:
+        return SparseMoENetwork
     else:
         raise ValueError(
             f"Unknown config type: {type(config)}. (NeuralNetworkConfig by itself is not supported, use VanillaNeworkConfig)"

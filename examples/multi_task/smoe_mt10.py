@@ -7,7 +7,7 @@ from metaworld_algorithms.config.networks import (
     ContinuousActionPolicyConfig,
     QValueFunctionConfig,
 )
-from metaworld_algorithms.config.nn import MOOREConfig
+from metaworld_algorithms.config.nn import SparseMoEConfig
 from metaworld_algorithms.config.optim import OptimizerConfig
 from metaworld_algorithms.config.rl import OffPolicyTrainingConfig
 from metaworld_algorithms.envs import MetaworldConfig
@@ -29,7 +29,7 @@ def main() -> None:
     args = tyro.cli(Args)
 
     run = Run(
-        run_name="mt10_moore",
+        run_name="mt10_smoe",
         seed=args.seed,
         data_dir=args.data_dir,
         env=MetaworldConfig(
@@ -40,14 +40,14 @@ def main() -> None:
             num_tasks=10,
             gamma=0.99,
             actor_config=ContinuousActionPolicyConfig(
-                network_config=MOOREConfig(
+                network_config=SparseMoEConfig(
                     num_tasks=10, optimizer=OptimizerConfig(lr=3e-4, max_grad_norm=1.0)
                 ),
                 log_std_min=-10,
                 log_std_max=2,
             ),
             critic_config=QValueFunctionConfig(
-                network_config=MOOREConfig(
+                network_config=SparseMoEConfig(
                     num_tasks=10,
                     optimizer=OptimizerConfig(lr=3e-4, max_grad_norm=1.0),
                 )
@@ -64,6 +64,7 @@ def main() -> None:
         checkpoint=True,
         resume=args.resume,
     )
+    print("Run initialized")
 
     if args.track:
         # assert args.wandb_project is not None and args.wandb_entity is not None

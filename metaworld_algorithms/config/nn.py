@@ -152,3 +152,18 @@ class MOOREConfig(NeuralNetworkConfig):
     num_experts: int = 4
     """The number of orthogonal experts."""
     # Original values are 4 for MT10 and 6 for MT50
+
+@dataclass(frozen=True, kw_only=True)
+class SparseMoEConfig(NeuralNetworkConfig):
+    num_tasks: int
+    """The number of tasks (used for extracting the task IDs)."""
+
+    num_experts: int = 4
+    """The number of experts in the Sparse MoE network."""
+    # Original values are 4 for MT10 and 6 for MT50
+
+    num_shared_experts: int | None = 2
+    """Optional explicit number of shared experts. If None, falls back to num_experts."""
+
+    k_active_experts: int = 2
+    """Number of experts activated (top-k) per input."""

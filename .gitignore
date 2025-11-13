@@ -1,6 +1,7 @@
 test.ipynb
 .DS_Store
 .vscode/
+*.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
