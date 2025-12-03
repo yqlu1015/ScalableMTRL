@@ -10,7 +10,7 @@ from .multi_head import MultiHeadNetwork
 from .paco import PaCoNetwork
 from .soft_modules import SoftModularizationNetwork
 from .sparse_moe import SparseMoENetwork
-
+from .dense_moe import DenseMoENetwork
 
 def get_nn_arch_for_config(
     config: metaworld_algorithms.config.nn.NeuralNetworkConfig,
@@ -31,6 +31,8 @@ def get_nn_arch_for_config(
         return VanillaNetwork
     elif type(config) is metaworld_algorithms.config.nn.SparseMoEConfig:
         return SparseMoENetwork
+    elif type(config) is metaworld_algorithms.config.nn.DenseMoEConfig:
+        return DenseMoENetwork
     else:
         raise ValueError(
             f"Unknown config type: {type(config)}. (NeuralNetworkConfig by itself is not supported, use VanillaNeworkConfig)"

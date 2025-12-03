@@ -8,7 +8,7 @@ from metaworld_algorithms.config.networks import (
     QValueFunctionConfig,
 )
 from metaworld_algorithms.config.nn import SparseMoEConfig
-from metaworld_algorithms.config.optim import OptimizerConfig
+from metaworld_algorithms.config.optim import OptimizerConfig, PCGradConfig
 from metaworld_algorithms.config.rl import OffPolicyTrainingConfig
 from metaworld_algorithms.envs import MetaworldConfig
 from metaworld_algorithms.rl.algorithms import MTSACConfig
@@ -24,18 +24,15 @@ class Args:
     data_dir: Path = Path("./run_results")
     resume: bool = False
     num_experts: int = 8
-    num_shared_experts: int = 0
-    k_active_experts: int = 6
-    lb: bool = False
-    u: float = 0.01
-    width: int = 400
+    num_shared_experts: int = 2
+    k_active_experts: int = 4
 
 
 def main() -> None:
     args = tyro.cli(Args)
 
     run = Run(
-        run_name=f"mt50_smoe_e{args.num_experts}_se{args.num_shared_experts}_k{args.k_active_experts}" + ("_lb" if args.lb else "") + f"_seed{args.seed}",
+        run_name=f"mt50_smoe_pcgrad_e{args.num_experts}_se{args.num_shared_experts}_k{args.k_active_experts}",
         seed=args.seed,
         data_dir=args.data_dir,
         env=MetaworldConfig(
@@ -47,13 +44,10 @@ def main() -> None:
             gamma=0.99,
             actor_config=ContinuousActionPolicyConfig(
                 network_config=SparseMoEConfig(
-                    num_tasks=50, optimizer=OptimizerConfig(lr=3e-4, max_grad_norm=1.0),
+                    num_tasks=50, optimizer=PCGradConfig(num_tasks=50, max_grad_norm=1.0),
                     num_experts=args.num_experts,
                     num_shared_experts=args.num_shared_experts,
                     k_active_experts=args.k_active_experts,
-                    load_balancing=args.lb,
-                    u=args.u,
-                    width=args.width,
                 ),
                 log_std_min=-10,
                 log_std_max=2,
@@ -61,13 +55,10 @@ def main() -> None:
             critic_config=QValueFunctionConfig(
                 network_config=SparseMoEConfig(
                     num_tasks=50,
-                    optimizer=OptimizerConfig(lr=3e-4, max_grad_norm=1.0),
+                    optimizer=PCGradConfig(num_tasks=50, max_grad_norm=1.0),
                     num_experts=args.num_experts,
                     num_shared_experts=args.num_shared_experts,
                     k_active_experts=args.k_active_experts,
-                    load_balancing=args.lb,
-                    u=args.u,
-                    width=args.width,
                 )
             ),
             temperature_optimizer_config=OptimizerConfig(lr=1e-4),

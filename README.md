@@ -1,5 +1,5 @@
 # Scalable Multi-task Reinforcement Learning via Sparse Mixture-of-Experts
-Implementations of Multi-Task and Meta-Learning baselines for the Metaworld benchmark
+> This codebase is adapted from [the implementation of baselines for the Metaworld benchmark](https://github.com/rainx0r/metaworld-algorithms).
 
 ## Installation
 

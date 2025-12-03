@@ -154,6 +154,15 @@ class MOOREConfig(NeuralNetworkConfig):
     # Original values are 4 for MT10 and 6 for MT50
 
 @dataclass(frozen=True, kw_only=True)
+class DenseMoEConfig(NeuralNetworkConfig):
+    num_tasks: int
+    """The number of tasks (used for extracting the task IDs)."""
+
+    num_experts: int = 4
+    """The number of experts in the Dense MoE network."""
+    # Original values are 4 for MT10 and 6 for MT50
+
+@dataclass(frozen=True, kw_only=True)
 class SparseMoEConfig(NeuralNetworkConfig):
     num_tasks: int
     """The number of tasks (used for extracting the task IDs)."""
@@ -167,3 +176,9 @@ class SparseMoEConfig(NeuralNetworkConfig):
 
     k_active_experts: int = 2
     """Number of experts activated (top-k) per input."""
+
+    load_balancing: bool = False
+    """Whether to use load balancing."""
+
+    u: float = 1e-2
+    """The load balancing parameter."""

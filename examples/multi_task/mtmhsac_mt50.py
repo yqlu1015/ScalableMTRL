@@ -29,7 +29,7 @@ def main() -> None:
     args = tyro.cli(Args)
 
     run = Run(
-        run_name="mt50_mtmhsac",
+        run_name=f"mt50_mtmhsac_seed{args.seed}",
         seed=args.seed,
         data_dir=args.data_dir,
         env=MetaworldConfig(
