@@ -3,6 +3,9 @@ test.ipynb
 .vscode/
 *.sh
 
+export_wandb.py
+wandb_logs/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
